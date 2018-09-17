@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">LectureLivestream</string>
+    <string name="tv.teacher.page.number">Page %s</string>
+</resources>
