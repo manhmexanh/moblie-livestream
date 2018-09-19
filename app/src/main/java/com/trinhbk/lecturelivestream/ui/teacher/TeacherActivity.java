@@ -164,37 +164,37 @@ public class TeacherActivity extends BaseActivity {
 
         // Create PenSettingView
         mPenSettingView = new SpenSettingPenLayout(this, "", penViewLayout);
-        if (mPenSettingView == null) {
-            Toast.makeText(this, "Cannot create new PenSettingView.",
-                    Toast.LENGTH_SHORT).show();
-            finish();
-        }
+//        if (mPenSettingView == null) {
+//            Toast.makeText(this, "Cannot create new PenSettingView.",
+//                    Toast.LENGTH_SHORT).show();
+//            finish();
+//        }
         penViewLayout.addView(mPenSettingView);
 
         // Create EraserSettingView
         //noinspection deprecation
         mEraserSettingView = new SpenSettingEraserLayout(this, "", penViewLayout);
-        if (mEraserSettingView == null) {
-            Toast.makeText(this, "Cannot create new EraserSettingView.",
-                    Toast.LENGTH_SHORT).show();
-            finish();
-        }
+//        if (mEraserSettingView == null) {
+//            Toast.makeText(this, "Cannot create new EraserSettingView.",
+//                    Toast.LENGTH_SHORT).show();
+//            finish();
+//        }
         penViewLayout.addView(mEraserSettingView);
 
         // Create SurfacePenView
         mPenSurfaceView = new SpenSurfaceView(this);
-        if (mPenSurfaceView == null) {
-            Toast.makeText(this, "Cannot create new SpenView.", Toast.LENGTH_SHORT).show();
-            finish();
-        }
+//        if (mPenSurfaceView == null) {
+//            Toast.makeText(this, "Cannot create new SpenView.", Toast.LENGTH_SHORT).show();
+//            finish();
+//        }
         penViewLayout.addView(mPenSurfaceView);
 
         // Create TextSettingView.
         mTextSettingView = new SpenSettingTextLayout(this, "", new HashMap<>(), penViewLayout);
-        if (mTextSettingView == null) {
-            Toast.makeText(this, "Cannot create new TextSettingView.", Toast.LENGTH_SHORT).show();
-            finish();
-        }
+//        if (mTextSettingView == null) {
+//            Toast.makeText(this, "Cannot create new TextSettingView.", Toast.LENGTH_SHORT).show();
+//            finish();
+//        }
         penViewLayout.addView(mTextSettingView);
 
         mPenSettingView.setCanvasView(mPenSurfaceView);
@@ -310,13 +310,10 @@ public class TeacherActivity extends BaseActivity {
             callGalleryForInputImage(REQUEST_CODE_SELECT_IMAGE_BACKGROUND);
         });
 
-        ibAddCamera.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                ibAddCamera.setClickable(false);
-                mPenSurfaceView.closeControl();
-                createObjectRuntime();
-            }
+        ibAddCamera.setOnClickListener(view -> {
+            ibAddCamera.setClickable(false);
+            mPenSurfaceView.closeControl();
+            createObjectRuntime();
         });
 
         ibCaptureScreen.setOnClickListener(view -> {
@@ -376,39 +373,31 @@ public class TeacherActivity extends BaseActivity {
         ibRedo.setOnClickListener(undoRedoOnClickListener);
         ibRedo.setEnabled(mPenPageDoc.isRedoable());
 
-        ibRecord.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                mPenSurfaceView.setReplayListener(new SpenLayeredReplayListener() {
-                    @Override
-                    public void onProgressChanged(int i, int i1, int i2) {
+        ibRecord.setOnClickListener(view -> {
+            mPenSurfaceView.setReplayListener(new SpenLayeredReplayListener() {
+                @Override
+                public void onProgressChanged(int i, int i1, int i2) {
 
-                    }
+                }
 
-                    @Override
-                    public void onCompleted() {
-                        runOnUiThread(new Runnable() {
-                            @Override
-                            public void run() {
-                                // Enable the buttons when replay animation is complete.
-                                enableButton(true);
-                                ibUndo.setEnabled(mPenPageDoc.isUndoable());
-                                ibRecognizeShape.setEnabled(mPenPageDoc.isRedoable());
-                            }
-                        });
-                    }
-                });
-                mPenPageDoc.startRecord();
-            }
+                @Override
+                public void onCompleted() {
+                    runOnUiThread(() -> {
+                        // Enable the buttons when replay animation is complete.
+                        enableButton(true);
+                        ibUndo.setEnabled(mPenPageDoc.isUndoable());
+                        ibRecognizeShape.setEnabled(mPenPageDoc.isRedoable());
+                    });
+                }
+            });
+            mPenPageDoc.startRecord();
         });
 
-        ibSave.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                closeSettingView();
-                enableButton(false);
-                mPenSurfaceView.startReplay();
-            }
+        ibSave.setOnClickListener(view -> {
+            closeSettingView();
+            enableButton(false);
+            mPenSurfaceView.startReplay();
+            mPenPageDoc.getTemplateUri();
         });
 
         selectButton(ibBrush);
@@ -473,22 +462,18 @@ public class TeacherActivity extends BaseActivity {
         }
     };
 
-    private SpenTouchListener onPreTouchSurfaceViewListener = new SpenTouchListener() {
-        @Override
-        public boolean onTouch(View view, MotionEvent event) {
-            // TODO Auto-generated method stub
-            switch (event.getAction()) {
-                case MotionEvent.ACTION_DOWN:
-                case MotionEvent.ACTION_POINTER_DOWN:
-                    enableButton(false);
-                    break;
-                case MotionEvent.ACTION_CANCEL:
-                case MotionEvent.ACTION_UP:
-                    enableButton(true);
-                    break;
-            }
-            return false;
+    private SpenTouchListener onPreTouchSurfaceViewListener = (view, event) -> {
+        switch (event.getAction()) {
+            case MotionEvent.ACTION_DOWN:
+            case MotionEvent.ACTION_POINTER_DOWN:
+                enableButton(false);
+                break;
+            case MotionEvent.ACTION_CANCEL:
+            case MotionEvent.ACTION_UP:
+                enableButton(true);
+                break;
         }
+        return false;
     };
 
     private void enableButton(boolean isEnable) {
@@ -587,6 +572,7 @@ public class TeacherActivity extends BaseActivity {
                         SpenControlBase control = mPenSurfaceView.getControl();
                         if (control != null) {
                             control.setContextMenuVisible(true);
+                            //noinspection deprecation
                             mPenSurfaceView.updateScreenFrameBuffer();
                             mPenSurfaceView.update();
                         }
