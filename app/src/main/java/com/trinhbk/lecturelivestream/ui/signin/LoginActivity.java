@@ -50,14 +50,12 @@ public class LoginActivity extends BaseActivity implements View.OnClickListener 
         Intent intent = new Intent(LoginActivity.this, HomeActivity.class);
         intent.putExtra(Constants.IntentKey.KEY_INTENT_USER_PERMISSION, false);
         startActivity(intent);
-        finish();
     }
 
     private void loginWithTeacher() {
         Intent intent = new Intent(LoginActivity.this, HomeActivity.class);
         intent.putExtra(Constants.IntentKey.KEY_INTENT_USER_PERMISSION, true);
         startActivity(intent);
-        finish();
     }
 
 }

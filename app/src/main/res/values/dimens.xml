@@ -3,5 +3,8 @@
 
     <dimen name="space_8">8dp</dimen>
 
+    <dimen name="text_16">16sp</dimen>
+    <dimen name="text_24">24sp</dimen>
+
     <dimen name="height_24">24dp</dimen>
 </resources>

@@ -3,9 +3,15 @@ package com.trinhbk.lecturelivestream.ui.home;
 import android.Manifest;
 import android.content.Intent;
 import android.os.Bundle;
+import android.os.Environment;
+import android.provider.MediaStore;
 import android.support.annotation.Nullable;
 import android.support.design.widget.FloatingActionButton;
+import android.support.v7.widget.GridLayoutManager;
+import android.support.v7.widget.RecyclerView;
+import android.util.Log;
 import android.view.View;
+import android.widget.TextView;
 
 import com.karumi.dexter.Dexter;
 import com.karumi.dexter.MultiplePermissionsReport;
@@ -13,11 +19,15 @@ import com.karumi.dexter.PermissionToken;
 import com.karumi.dexter.listener.PermissionRequest;
 import com.karumi.dexter.listener.multi.MultiplePermissionsListener;
 import com.trinhbk.lecturelivestream.R;
+import com.trinhbk.lecturelivestream.adapter.HomeAdapter;
 import com.trinhbk.lecturelivestream.model.Lecture;
+import com.trinhbk.lecturelivestream.model.Video;
 import com.trinhbk.lecturelivestream.ui.BaseActivity;
 import com.trinhbk.lecturelivestream.ui.teacher.TeacherActivity;
 import com.trinhbk.lecturelivestream.ui.utils.Constants;
 
+import java.io.File;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Random;
@@ -28,11 +38,19 @@ import java.util.Random;
 
 public class HomeActivity extends BaseActivity implements View.OnClickListener {
 
-//    private MessageSender messageSender;
+    public static final String TAG = HomeActivity.class.getSimpleName();
 
     private FloatingActionButton fabCall;
 
-    private boolean isTeaacher;
+    private boolean isTeacher;
+
+    private HomeAdapter homeAdapter;
+    private List<Video> videos;
+
+    private TextView tvEmpty;
+    private RecyclerView rvVideo;
+
+
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
@@ -52,18 +70,59 @@ public class HomeActivity extends BaseActivity implements View.OnClickListener {
                         Manifest.permission.READ_EXTERNAL_STORAGE,
                         Manifest.permission.RECORD_AUDIO
                 ).withListener(new MultiplePermissionsListener() {
-            @Override public void onPermissionsChecked(MultiplePermissionsReport report) {/* ... */}
-            @Override public void onPermissionRationaleShouldBeShown(List<PermissionRequest> permissions, PermissionToken token) {/* ... */}
+            @Override
+            public void onPermissionsChecked(MultiplePermissionsReport report) {/* ... */}
+
+            @Override
+            public void onPermissionRationaleShouldBeShown(List<PermissionRequest> permissions, PermissionToken token) {/* ... */}
         }).check();
     }
 
     private void initView() {
+        rvVideo = findViewById(R.id.rcvHome);
+        tvEmpty = findViewById(R.id.tvHomeEmpty);
         fabCall = findViewById(R.id.fabHome);
+        RecyclerView.LayoutManager recyclerViewLayoutManager = new GridLayoutManager(getApplicationContext(), 2);
+        rvVideo.setLayoutManager(recyclerViewLayoutManager);
+        videos = new ArrayList<>();
+        homeAdapter = new HomeAdapter(videos);
+        rvVideo.setAdapter(homeAdapter);
+
     }
 
     private void initEvent() {
         fabCall.setOnClickListener(this);
-        isTeaacher = getIntent().getBooleanExtra(Constants.IntentKey.KEY_INTENT_USER_PERMISSION, false);
+        isTeacher = getIntent().getBooleanExtra(Constants.IntentKey.KEY_INTENT_USER_PERMISSION, false);
+        fetchVideo();
+    }
+
+    public void searchVid(File dir) {
+        String pattern = ".mp4";
+        //Get the listfile of that flder
+        File listFile[] = dir.listFiles();
+
+        if (listFile != null) {
+            for (int i = 0; i < listFile.length; i++) {
+                final int x = i;
+                if (listFile[i].isDirectory()) {
+//                    walkdir(listFile[i]);
+                } else {
+                    if (listFile[i].getName().endsWith(pattern)) {
+                        // Do what ever u want, add the path of the video to the list
+//                        pathVideos.add(listFile[i].getAbsolutePath());
+                        Video video = new Video(listFile[i].getName());
+                        videos.add(video);
+                    }
+                }
+            }
+        }
+    }
+
+    private void fetchVideo() {
+        searchVid(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES));
+        if (videos.size() > 0) {
+            homeAdapter.notifyDataSetChanged();
+        }
     }
 
     @Override
@@ -76,7 +135,7 @@ public class HomeActivity extends BaseActivity implements View.OnClickListener {
     }
 
     private void call() {
-        if (isTeaacher) {
+        if (isTeacher) {
 //            messageSender.createRoom(Constants.WebRTC.ROOM_PUBLIC);
             Lecture lecture = new Lecture();
             String fileName = new Date().getTime() + "_" + new Random().nextInt(10000);
