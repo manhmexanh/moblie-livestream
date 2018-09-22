@@ -2,12 +2,14 @@ package com.trinhbk.lecturelivestream.ui.home;
 
 import android.Manifest;
 import android.content.Intent;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
 import android.provider.MediaStore;
 import android.support.annotation.Nullable;
 import android.support.design.widget.FloatingActionButton;
 import android.support.v7.widget.GridLayoutManager;
+import android.support.v7.widget.LinearLayoutManager;
 import android.support.v7.widget.RecyclerView;
 import android.util.Log;
 import android.view.View;
@@ -24,6 +26,7 @@ import com.trinhbk.lecturelivestream.model.Lecture;
 import com.trinhbk.lecturelivestream.model.Video;
 import com.trinhbk.lecturelivestream.ui.BaseActivity;
 import com.trinhbk.lecturelivestream.ui.teacher.TeacherActivity;
+import com.trinhbk.lecturelivestream.ui.trimmer.EditVideoActivity;
 import com.trinhbk.lecturelivestream.ui.utils.Constants;
 
 import java.io.File;
@@ -82,18 +85,45 @@ public class HomeActivity extends BaseActivity implements View.OnClickListener {
         rvVideo = findViewById(R.id.rcvHome);
         tvEmpty = findViewById(R.id.tvHomeEmpty);
         fabCall = findViewById(R.id.fabHome);
-        RecyclerView.LayoutManager recyclerViewLayoutManager = new GridLayoutManager(getApplicationContext(), 2);
+        RecyclerView.LayoutManager recyclerViewLayoutManager = new LinearLayoutManager(getApplicationContext());
         rvVideo.setLayoutManager(recyclerViewLayoutManager);
         videos = new ArrayList<>();
-        homeAdapter = new HomeAdapter(videos);
+        homeAdapter = new HomeAdapter(videos, new HomeAdapter.OnClickVideo() {
+            @Override
+            public void onItemWatchVideo(int position) {
+                Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse( videos.get(position).getVideoPath()));
+                intent.setDataAndType(Uri.parse( videos.get(position).getVideoPath()), "video/mp4");
+                startActivity(intent);
+            }
+
+            @Override
+            public void onItemEditVideo(int position) {
+                Intent intent = new Intent(HomeActivity.this, EditVideoActivity.class);
+                intent.putExtra(Constants.IntentKey.EXTRA_VIDEO_URL, videos.get(position).getVideoPath());
+                startActivity(intent);
+            }
+        });
         rvVideo.setAdapter(homeAdapter);
 
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        fetchVideo();
     }
 
     private void initEvent() {
         fabCall.setOnClickListener(this);
         isTeacher = getIntent().getBooleanExtra(Constants.IntentKey.KEY_INTENT_USER_PERMISSION, false);
-        fetchVideo();
+    }
+
+    private void fetchVideo() {
+        videos.clear();
+        searchVid(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES));
+        if (videos.size() > 0) {
+            homeAdapter.notifyDataSetChanged();
+        }
     }
 
     public void searchVid(File dir) {
@@ -110,18 +140,11 @@ public class HomeActivity extends BaseActivity implements View.OnClickListener {
                     if (listFile[i].getName().endsWith(pattern)) {
                         // Do what ever u want, add the path of the video to the list
 //                        pathVideos.add(listFile[i].getAbsolutePath());
-                        Video video = new Video(listFile[i].getName());
+                        Video video = new Video(listFile[i].getName(), listFile[i].getAbsolutePath());
                         videos.add(video);
                     }
                 }
             }
-        }
-    }
-
-    private void fetchVideo() {
-        searchVid(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES));
-        if (videos.size() > 0) {
-            homeAdapter.notifyDataSetChanged();
         }
     }
 

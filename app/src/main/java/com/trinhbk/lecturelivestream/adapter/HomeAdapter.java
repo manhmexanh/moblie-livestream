@@ -4,6 +4,7 @@ import android.support.v7.widget.RecyclerView;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.ImageView;
 import android.widget.TextView;
 
 import com.trinhbk.lecturelivestream.R;
@@ -18,10 +19,13 @@ import java.util.List;
 
 public class HomeAdapter extends RecyclerView.Adapter<HomeAdapter.RecyclerViewHolder> {
 
-    private List<Video> data = new ArrayList<>();
+    private List<Video> data;
+    private OnClickVideo onClickVideo;
 
-    public HomeAdapter(List<Video> data) {
+    public HomeAdapter(List<Video> data, OnClickVideo onClickVideo) {
+        this.data = new ArrayList<>();
         this.data = data;
+        this.onClickVideo = onClickVideo;
     }
 
     @Override
@@ -42,13 +46,35 @@ public class HomeAdapter extends RecyclerView.Adapter<HomeAdapter.RecyclerViewHo
     }
 
 
-    public class RecyclerViewHolder extends RecyclerView.ViewHolder {
+    public class RecyclerViewHolder extends RecyclerView.ViewHolder implements View.OnClickListener {
 
         TextView tvVideoName;
+        ImageView ivVideoEdit;
 
         public RecyclerViewHolder(View itemView) {
             super(itemView);
             tvVideoName = itemView.findViewById(R.id.tvItemHome);
+            ivVideoEdit = itemView.findViewById(R.id.ivItemHome);
+            itemView.setOnClickListener(this);
+            ivVideoEdit.setOnClickListener(this);
         }
+
+        @Override
+        public void onClick(View view) {
+            switch (view.getId()) {
+                case R.id.ivItemHome:
+                    onClickVideo.onItemEditVideo(getAdapterPosition());
+                    break;
+                default:
+                    onClickVideo.onItemWatchVideo(getAdapterPosition());
+                    break;
+            }
+        }
+    }
+
+    public interface OnClickVideo {
+        void onItemWatchVideo(int position);
+
+        void onItemEditVideo(int position);
     }
 }

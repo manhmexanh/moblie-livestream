@@ -32,6 +32,7 @@
             </intent-filter>
         </activity>
         <activity android:name=".ui.home.HomeActivity"/>
+        <activity android:name=".ui.trimmer.EditVideoActivity"/>
         <activity android:name=".ui.teacher.TeacherActivity" />
     </application>
 </manifest>

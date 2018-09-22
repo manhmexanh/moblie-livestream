@@ -9,9 +9,11 @@ public class Video {
     private String videoName;
     private String videoThumb;
     private String videoDate;
+    private String videoPath;
 
-    public Video(String videoName) {
+    public Video(String videoName, String videoPath) {
         this.videoName = videoName;
+        this.videoPath = videoPath;
     }
 
     public Video(String videoName, String videoThumb, String videoDate) {
@@ -42,5 +44,13 @@ public class Video {
 
     public void setVideoDate(String videoDate) {
         this.videoDate = videoDate;
+    }
+
+    public String getVideoPath() {
+        return videoPath;
+    }
+
+    public void setVideoPath(String videoPath) {
+        this.videoPath = videoPath;
     }
 }
