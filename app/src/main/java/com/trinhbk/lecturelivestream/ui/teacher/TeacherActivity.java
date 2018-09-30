@@ -2,24 +2,35 @@ package com.trinhbk.lecturelivestream.ui.teacher;
 
 import android.annotation.SuppressLint;
 import android.content.ActivityNotFoundException;
+import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.PointF;
 import android.graphics.Rect;
 import android.graphics.RectF;
+import android.hardware.display.DisplayManager;
+import android.hardware.display.VirtualDisplay;
+import android.media.MediaRecorder;
+import android.media.projection.MediaProjection;
+import android.media.projection.MediaProjectionManager;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.provider.MediaStore;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
+import android.util.DisplayMetrics;
+import android.util.Log;
+import android.util.SparseIntArray;
 import android.view.Display;
 import android.view.MotionEvent;
+import android.view.Surface;
 import android.view.View;
+import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.RelativeLayout;
@@ -43,7 +54,6 @@ import com.samsung.android.sdk.pen.engine.SpenContextMenuItemInfo;
 import com.samsung.android.sdk.pen.engine.SpenControlBase;
 import com.samsung.android.sdk.pen.engine.SpenControlListener;
 import com.samsung.android.sdk.pen.engine.SpenFlickListener;
-import com.samsung.android.sdk.pen.engine.SpenLayeredReplayListener;
 import com.samsung.android.sdk.pen.engine.SpenObjectRuntime;
 import com.samsung.android.sdk.pen.engine.SpenObjectRuntimeInfo;
 import com.samsung.android.sdk.pen.engine.SpenObjectRuntimeManager;
@@ -56,6 +66,8 @@ import com.samsung.android.sdk.pen.settingui.SpenSettingPenLayout;
 import com.samsung.android.sdk.pen.settingui.SpenSettingTextLayout;
 import com.trinhbk.lecturelivestream.R;
 import com.trinhbk.lecturelivestream.ui.BaseActivity;
+import com.trinhbk.lecturelivestream.ui.dialog.settingvideo.SettingVideoDFragment;
+import com.trinhbk.lecturelivestream.ui.utils.Constants;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -69,7 +81,7 @@ import java.util.List;
  * Created by TrinhBK on 8/29/2018.
  */
 
-public class TeacherActivity extends BaseActivity {
+public class TeacherActivity extends BaseActivity implements SettingVideoDFragment.OnClickSettingVideo {
 
     public static final String TAG = TeacherActivity.class.getSimpleName();
 
@@ -79,9 +91,15 @@ public class TeacherActivity extends BaseActivity {
     private int mMode = MODE_PEN;
     private int mToolType = SpenSurfaceView.TOOL_SPEN;
 
+    private static final int DISPLAY_WIDTH = 720;
+    private static final int DISPLAY_HEIGHT = 1280;
+
     private final int CONTEXT_MENU_RUN_ID = 0;
 
+    private static final int REQUEST_CODE_SETTING_VIDEO = 96;
     public static final int REQUEST_CODE_SELECT_IMAGE_BACKGROUND = 99;
+    public static final int REQUEST_CODE_SELECT_IMAGE = 98;
+    private static final int REQUEST_CODE_RECORD = 1000;
 
     private Handler mStrokeHandler;
 
@@ -90,6 +108,7 @@ public class TeacherActivity extends BaseActivity {
     private ImageButton ibEraser;
     private ImageButton ibAddImageBackground;
     private ImageButton ibCaptureScreen;
+    private ImageButton ibInsertImage;
     private ImageButton ibAddCamera;
     private ImageButton ibAddText;
     private ImageButton ibSelection;
@@ -101,6 +120,7 @@ public class TeacherActivity extends BaseActivity {
     private ImageButton ibSave;
     private TextView tvNumberPage;
 
+    private FrameLayout penViewContainer;
     private RelativeLayout penViewLayout;
 
     private SpenNoteDoc mPenNoteDoc;
@@ -116,14 +136,32 @@ public class TeacherActivity extends BaseActivity {
     private SpenObjectRuntimeInfo mObjectRuntimeInfo;
     private SpenObjectRuntime mVideoRuntime;
 
+    private MediaRecorder mMediaRecorder;
+    private MediaProjectionManager mProjectionManager;
+    private static final SparseIntArray ORIENTATIONS = new SparseIntArray();
+    private int mScreenDensity;
+
+    static {
+        ORIENTATIONS.append(Surface.ROTATION_0, 90);
+        ORIENTATIONS.append(Surface.ROTATION_90, 0);
+        ORIENTATIONS.append(Surface.ROTATION_180, 270);
+        ORIENTATIONS.append(Surface.ROTATION_270, 180);
+    }
+
+    private MediaProjection mMediaProjection;
+    private VirtualDisplay mVirtualDisplay;
+    private MediaProjectionCallback mMediaProjectionCallback;
+    private int statusRecorder = Constants.Action.ACTION_STOP_RECORDING;
+
+
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_teacher);
 
-
         initViews();
         initSamSungPen();
+        initMedia();
     }
 
     private void initViews() {
@@ -131,6 +169,7 @@ public class TeacherActivity extends BaseActivity {
         ibTempBrush = findViewById(R.id.ibTempBrush);
         ibEraser = findViewById(R.id.ivEraser);
         ibAddImageBackground = findViewById(R.id.ivAddImage);
+        ibInsertImage = findViewById(R.id.ibInsertImage);
         ibCaptureScreen = findViewById(R.id.ibCaptureScreen);
         ibAddCamera = findViewById(R.id.ibAddVideo);
         ibAddText = findViewById(R.id.ibText);
@@ -141,8 +180,9 @@ public class TeacherActivity extends BaseActivity {
         ibRedo = findViewById(R.id.ivRedo);
         ibRecord = findViewById(R.id.ibRecord);
         ibSave = findViewById(R.id.ibSave);
-
         tvNumberPage = findViewById(R.id.tvPageNumber);
+
+        penViewContainer = findViewById(R.id.spenViewContainer);
         penViewLayout = findViewById(R.id.spenViewLayout);
     }
 
@@ -164,38 +204,38 @@ public class TeacherActivity extends BaseActivity {
 
         // Create PenSettingView
         mPenSettingView = new SpenSettingPenLayout(this, "", penViewLayout);
-//        if (mPenSettingView == null) {
-//            Toast.makeText(this, "Cannot create new PenSettingView.",
-//                    Toast.LENGTH_SHORT).show();
-//            finish();
-//        }
-        penViewLayout.addView(mPenSettingView);
+        if (mPenSettingView == null) {
+            Toast.makeText(this, "Cannot create new PenSettingView.",
+                    Toast.LENGTH_SHORT).show();
+            finish();
+        }
+        penViewContainer.addView(mPenSettingView);
 
         // Create EraserSettingView
         //noinspection deprecation
         mEraserSettingView = new SpenSettingEraserLayout(this, "", penViewLayout);
-//        if (mEraserSettingView == null) {
-//            Toast.makeText(this, "Cannot create new EraserSettingView.",
-//                    Toast.LENGTH_SHORT).show();
-//            finish();
-//        }
-        penViewLayout.addView(mEraserSettingView);
+        if (mEraserSettingView == null) {
+            Toast.makeText(this, "Cannot create new EraserSettingView.",
+                    Toast.LENGTH_SHORT).show();
+            finish();
+        }
+        penViewContainer.addView(mEraserSettingView);
 
         // Create SurfacePenView
         mPenSurfaceView = new SpenSurfaceView(this);
-//        if (mPenSurfaceView == null) {
-//            Toast.makeText(this, "Cannot create new SpenView.", Toast.LENGTH_SHORT).show();
-//            finish();
-//        }
+        if (mPenSurfaceView == null) {
+            Toast.makeText(this, "Cannot create new SpenView.", Toast.LENGTH_SHORT).show();
+            finish();
+        }
         penViewLayout.addView(mPenSurfaceView);
 
         // Create TextSettingView.
         mTextSettingView = new SpenSettingTextLayout(this, "", new HashMap<>(), penViewLayout);
-//        if (mTextSettingView == null) {
-//            Toast.makeText(this, "Cannot create new TextSettingView.", Toast.LENGTH_SHORT).show();
-//            finish();
-//        }
-        penViewLayout.addView(mTextSettingView);
+        if (mTextSettingView == null) {
+            Toast.makeText(this, "Cannot create new TextSettingView.", Toast.LENGTH_SHORT).show();
+            finish();
+        }
+        penViewContainer.addView(mTextSettingView);
 
         mPenSettingView.setCanvasView(mPenSurfaceView);
         mEraserSettingView.setCanvasView(mPenSurfaceView);
@@ -236,7 +276,6 @@ public class TeacherActivity extends BaseActivity {
             }
         });
         mPenSurfaceView.setTextChangeListener(textChangeListener());
-        mPenSurfaceView.setTouchListener(touchListenerBrush());
         mPenSurfaceView.setFlickListener(flickListener());
         mPenSurfaceView.setControlListener(mControlListener);
         mPenSurfaceView.setPreTouchListener(onPreTouchSurfaceViewListener);
@@ -251,6 +290,7 @@ public class TeacherActivity extends BaseActivity {
 
         ibBrush.setOnClickListener(view -> {
             mPenSurfaceView.stopTemporaryStroke();
+            mPenSurfaceView.setTouchListener(touchListenerBrush());
             if (mPenSurfaceView.getToolTypeAction(mToolType) == SpenSurfaceView.ACTION_STROKE) {
                 if (mPenSettingView.isShown()) {
                     mPenSettingView.setVisibility(View.GONE);
@@ -260,6 +300,7 @@ public class TeacherActivity extends BaseActivity {
                     mPenSettingView.setVisibility(View.VISIBLE);
                 }
             } else {
+                mMode = MODE_PEN;
                 selectButton(ibBrush);
                 mPenSurfaceView.setToolTypeAction(mToolType, SpenSettingViewInterface.ACTION_STROKE);
             }
@@ -267,23 +308,20 @@ public class TeacherActivity extends BaseActivity {
 
         ibTempBrush.setOnClickListener(view -> {
             mPenSurfaceView.startTemporaryStroke();
-            mPenSurfaceView.setTouchListener((v, motionEvent) -> {
-                switch (motionEvent.getAction()) {
-                    case MotionEvent.ACTION_DOWN:
-                        // When ACTION_DOWN occurs before mStrokeRunnable is set in a queue, the mStrokeRunnable that waits is removed.
-                        if (mStrokeHandler != null) {
-                            mStrokeHandler.removeCallbacks(mStrokeRunnable);
-                            mStrokeHandler = null;
-                        }
-                        break;
-                    case MotionEvent.ACTION_UP:
-                        // Generate Handler to put mStrokeRunnable in a queue when it takes 1000 milliseconds after ACTION_UP occurred.
-                        mStrokeHandler = new Handler();
-                        mStrokeHandler.postDelayed(mStrokeRunnable, 1000);
-                        break;
+            mPenSurfaceView.setTouchListener(touchListenerTemporaryBrush());
+            if (mPenSurfaceView.getToolTypeAction(mToolType) == SpenSurfaceView.ACTION_STROKE) {
+                if (mPenSettingView.isShown()) {
+                    mPenSettingView.setVisibility(View.GONE);
+                } else {
+                    //noinspection deprecation
+                    mPenSettingView.setViewMode(SpenSettingPenLayout.VIEW_MODE_EXTENSION);
+                    mPenSettingView.setVisibility(View.VISIBLE);
                 }
-                return true;
-            });
+            } else {
+                mMode = MODE_PEN;
+                selectButton(ibBrush);
+                mPenSurfaceView.setToolTypeAction(mToolType, SpenSettingViewInterface.ACTION_STROKE);
+            }
         });
 
         ibEraser.setOnClickListener(view -> {
@@ -308,6 +346,11 @@ public class TeacherActivity extends BaseActivity {
         ibAddImageBackground.setOnClickListener(view -> {
             closeSettingView();
             callGalleryForInputImage(REQUEST_CODE_SELECT_IMAGE_BACKGROUND);
+        });
+
+        ibInsertImage.setOnClickListener(view -> {
+            closeSettingView();
+            callGalleryForInputImage(REQUEST_CODE_SELECT_IMAGE);
         });
 
         ibAddCamera.setOnClickListener(view -> {
@@ -374,30 +417,41 @@ public class TeacherActivity extends BaseActivity {
         ibRedo.setEnabled(mPenPageDoc.isRedoable());
 
         ibRecord.setOnClickListener(view -> {
-            mPenSurfaceView.setReplayListener(new SpenLayeredReplayListener() {
-                @Override
-                public void onProgressChanged(int i, int i1, int i2) {
-
-                }
-
-                @Override
-                public void onCompleted() {
-                    runOnUiThread(() -> {
-                        // Enable the buttons when replay animation is complete.
-                        enableButton(true);
-                        ibUndo.setEnabled(mPenPageDoc.isUndoable());
-                        ibRecognizeShape.setEnabled(mPenPageDoc.isRedoable());
-                    });
-                }
-            });
-            mPenPageDoc.startRecord();
+            switch (statusRecorder) {
+                case Constants.Action.ACTION_PAUSE_RECORDING:
+                    statusRecorder = Constants.Action.ACTION_RESUME_RECORDING;
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                        mMediaRecorder.resume();
+                    }
+                    break;
+                case Constants.Action.ACTION_RESUME_RECORDING:
+                    statusRecorder = Constants.Action.ACTION_PAUSE_RECORDING;
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                        mMediaRecorder.pause();
+                    }
+                    break;
+                case Constants.Action.ACTION_START_RECORDING:
+                    break;
+                case Constants.Action.ACTION_STOP_RECORDING:
+                    statusRecorder = Constants.Action.ACTION_START_RECORDING;
+                    SettingVideoDFragment dialogFragment = SettingVideoDFragment.newInstance();
+                    dialogFragment.show(getSupportFragmentManager(), dialogFragment.getClass().getSimpleName());
+//                    initRecorder();
+//                    shareScreen();
+                    break;
+            }
         });
 
         ibSave.setOnClickListener(view -> {
             closeSettingView();
-            enableButton(false);
-            mPenSurfaceView.startReplay();
-            mPenPageDoc.getTemplateUri();
+//            enableButton(false);
+//            mPenSurfaceView.startReplay();
+//            mPenPageDoc.getTemplateUri();
+            mMediaRecorder.stop();
+            mMediaRecorder.reset();
+            Toast.makeText(this, "Video is saved", Toast.LENGTH_SHORT).show();
+            Log.v(TAG, "Stopping Recording");
+            stopScreenSharing();
         });
 
         selectButton(ibBrush);
@@ -413,6 +467,80 @@ public class TeacherActivity extends BaseActivity {
         }
     }
 
+    private void initRecorder(String pathVideo, int bitRate, int frameRate) {
+        try {
+            mMediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
+            mMediaRecorder.setVideoSource(MediaRecorder.VideoSource.SURFACE);
+            mMediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.THREE_GPP);
+//            mMediaRecorder.setOutputFile(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES) + "/" + Calendar.getInstance().getTimeInMillis() + ".mp4");
+            mMediaRecorder.setOutputFile(pathVideo);
+            mMediaRecorder.setVideoSize(DISPLAY_WIDTH, DISPLAY_HEIGHT);
+            mMediaRecorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264);
+            mMediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AMR_NB);
+//            mMediaRecorder.setVideoEncodingBitRate(512 * 1000);
+            mMediaRecorder.setVideoEncodingBitRate(bitRate);
+//            mMediaRecorder.setVideoFrameRate(30);
+            mMediaRecorder.setVideoFrameRate(frameRate);
+            int rotation = getWindowManager().getDefaultDisplay().getRotation();
+            int orientation = ORIENTATIONS.get(rotation + 90);
+            mMediaRecorder.setOrientationHint(orientation);
+            mMediaRecorder.prepare();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+    }
+
+    @Override
+    public void onDone(String pathVideo, int bitRate, int frameRate) {
+        initRecorder(pathVideo, bitRate, frameRate);
+        shareScreen();
+    }
+
+    private void shareScreen() {
+        if (mMediaProjection == null) {
+            startActivityForResult(mProjectionManager.createScreenCaptureIntent(), REQUEST_CODE_RECORD);
+            return;
+        }
+        mVirtualDisplay = createVirtualDisplay();
+        mMediaRecorder.start();
+    }
+
+    private VirtualDisplay createVirtualDisplay() {
+        return mMediaProjection.createVirtualDisplay("MainActivity",
+                DISPLAY_WIDTH, DISPLAY_HEIGHT, mScreenDensity,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                mMediaRecorder.getSurface(), null /*Callbacks*/, null
+                /*Handler*/);
+    }
+
+    private void stopScreenSharing() {
+        if (mVirtualDisplay == null) {
+            return;
+        }
+        mVirtualDisplay.release();
+        //mMediaRecorder.release(); //If used: mMediaRecorder object cannot be reused again
+        destroyMediaProjection();
+    }
+
+    private void destroyMediaProjection() {
+        if (mMediaProjection != null) {
+            mMediaProjection.unregisterCallback(mMediaProjectionCallback);
+            mMediaProjection.stop();
+            mMediaProjection = null;
+        }
+        Log.i(TAG, "MediaProjection Stopped");
+    }
+
+    private void initMedia() {
+        DisplayMetrics metrics = new DisplayMetrics();
+        getWindowManager().getDefaultDisplay().getMetrics(metrics);
+        mScreenDensity = metrics.densityDpi;
+        mMediaRecorder = new MediaRecorder();
+        mProjectionManager = (MediaProjectionManager) getSystemService
+                (Context.MEDIA_PROJECTION_SERVICE);
+    }
+
     SpenControlListener mControlListener = new SpenControlListener() {
         @Override
         public boolean onCreated(ArrayList<SpenObjectBase> objectList, ArrayList<Rect> relativeRectList, ArrayList<SpenContextMenuItemInfo> menu, ArrayList<Integer> styleList, int pressType, PointF point) {
@@ -426,6 +554,7 @@ public class TeacherActivity extends BaseActivity {
             }
             return true;
         }
+
         @Override
         public boolean onMenuSelected(
                 ArrayList<SpenObjectBase> objectList, int itemId) {
@@ -435,7 +564,7 @@ public class TeacherActivity extends BaseActivity {
             if (itemId == CONTEXT_MENU_RUN_ID) {
                 SpenObjectBase object = objectList.get(0);
                 mPenSurfaceView.getControl().setContextMenuVisible(false);
-                mPenSurfaceView.getControl(). setStyle(SpenControlBase.STYLE_BORDER_STATIC);
+                mPenSurfaceView.getControl().setStyle(SpenControlBase.STYLE_BORDER_STATIC);
                 // Set up listener and make it play.
                 mVideoRuntime.setListener(objectRuntimeListener);
                 mVideoRuntime.start(object, getRealRect(object.getRect()),
@@ -445,18 +574,22 @@ public class TeacherActivity extends BaseActivity {
             }
             return false;
         }
+
         @Override
         public void onObjectChanged(ArrayList<SpenObjectBase> object) {
         }
+
         @Override
         public void onRectChanged(RectF rect, SpenObjectBase object) {
         }
+
         @Override
         public void onRotationChanged(float angle, SpenObjectBase objectBase) {
         }
+
         @Override
         public boolean onClosed(ArrayList<SpenObjectBase> objectList) {
-            if(mVideoRuntime != null)
+            if (mVideoRuntime != null)
                 mVideoRuntime.stop(true);
             return false;
         }
@@ -527,7 +660,7 @@ public class TeacherActivity extends BaseActivity {
 
     private void startObjectRuntime() {
         if (mVideoRuntime == null) {
-            Toast.makeText(this,  "ObjectRuntime is not loaded \n Load Plug-in First !!",   Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "ObjectRuntime is not loaded \n Load Plug-in First !!", Toast.LENGTH_SHORT).show();
             return;
         }
         SpenObjectBase objectBase = null;
@@ -546,7 +679,7 @@ public class TeacherActivity extends BaseActivity {
             default:
                 break;
         }
-        if(objectBase == null) {
+        if (objectBase == null) {
             Toast.makeText(this, "Has no selected object.",
                     Toast.LENGTH_SHORT).show();
             return;
@@ -566,46 +699,46 @@ public class TeacherActivity extends BaseActivity {
 
     SpenObjectRuntime.UpdateListener objectRuntimeListener = new SpenObjectRuntime.UpdateListener() {
 
-                @Override
-                public void onCompleted(Object objectBase) {
-                    if ( mPenSurfaceView != null ) {
-                        SpenControlBase control = mPenSurfaceView.getControl();
-                        if (control != null) {
-                            control.setContextMenuVisible(true);
-                            //noinspection deprecation
-                            mPenSurfaceView.updateScreenFrameBuffer();
-                            mPenSurfaceView.update();
-                        }
-                    }
-                    ibAddCamera.setClickable(true);
+        @Override
+        public void onCompleted(Object objectBase) {
+            if (mPenSurfaceView != null) {
+                SpenControlBase control = mPenSurfaceView.getControl();
+                if (control != null) {
+                    control.setContextMenuVisible(true);
+                    //noinspection deprecation
+                    mPenSurfaceView.updateScreenFrameBuffer();
+                    mPenSurfaceView.update();
                 }
+            }
+            ibAddCamera.setClickable(true);
+        }
 
-                @Override
-                public void onObjectUpdated(RectF rect, Object objectBase) {
-                    if ( mPenSurfaceView != null ) {
-                        SpenControlBase control = mPenSurfaceView.getControl();
-                        if(control != null) {
-                            control.fit();
-                            control.invalidate();
-                            mPenSurfaceView.update();
-                        }
-                    }
+        @Override
+        public void onObjectUpdated(RectF rect, Object objectBase) {
+            if (mPenSurfaceView != null) {
+                SpenControlBase control = mPenSurfaceView.getControl();
+                if (control != null) {
+                    control.fit();
+                    control.invalidate();
+                    mPenSurfaceView.update();
                 }
+            }
+        }
 
-                @Override
-                public void onCanceled(int state, Object objectBase) {
-                    if (state == SpenObjectRuntimeInterface.CANCEL_STATE_INSERT) {
-                        mPenPageDoc.removeObject((SpenObjectBase) objectBase);
-                        mPenPageDoc.removeSelectedObject();
-                        mPenSurfaceView.closeControl();
-                        mPenSurfaceView.update();
-                    } else if (state == SpenObjectRuntimeInterface.CANCEL_STATE_RUN) {
-                        mPenSurfaceView.closeControl();
-                        mPenSurfaceView.update();
-                    }
-                    ibAddCamera.setClickable(true);
-                }
-            };
+        @Override
+        public void onCanceled(int state, Object objectBase) {
+            if (state == SpenObjectRuntimeInterface.CANCEL_STATE_INSERT) {
+                mPenPageDoc.removeObject((SpenObjectBase) objectBase);
+                mPenPageDoc.removeSelectedObject();
+                mPenSurfaceView.closeControl();
+                mPenSurfaceView.update();
+            } else if (state == SpenObjectRuntimeInterface.CANCEL_STATE_RUN) {
+                mPenSurfaceView.closeControl();
+                mPenSurfaceView.update();
+            }
+            ibAddCamera.setClickable(true);
+        }
+    };
 
     @NonNull
     private SpenFlickListener flickListener() {
@@ -679,22 +812,23 @@ public class TeacherActivity extends BaseActivity {
                 SpenControlBase control = mPenSurfaceView.getControl();
                 if (control == null) {
                     // When touching the screen in Insert ObjectImage mode.
-                    if (mMode == MODE_IMG_OBJ) {
-                        // Set the Bitmap file to ObjectImage.
-                        SpenObjectImage imgObj = new SpenObjectImage();
-                        Bitmap imageBitmap = BitmapFactory.decodeResource(getResources(), R.drawable.ic_launcher_background);
-                        imgObj.setImage(imageBitmap);
-                        // Specify the location where ObjectImage is inserted and add PageDoc.
-                        float imgWidth = imageBitmap.getWidth();
-                        float imgHeight = imageBitmap.getHeight();
-                        RectF rect1 = getRealPoint(event.getX(), event.getY(), imgWidth, imgHeight);
-                        imgObj.setRect(rect1, true);
-                        mPenPageDoc.appendObject(imgObj);
-                        mPenSurfaceView.update();
-                        imageBitmap.recycle();
-                        return true;
-                        // When touching the screen in Insert ObjectTextBox mode.
-                    } else if (mPenSurfaceView.getToolTypeAction(mToolType) == SpenSurfaceView.ACTION_TEXT) {
+//                    if (mMode == MODE_IMG_OBJ) {
+                    // Set the Bitmap file to ObjectImage.
+//                        SpenObjectImage imgObj = new SpenObjectImage();
+//                        Bitmap imageBitmap = BitmapFactory.decodeResource(getResources(), R.drawable.ic_add_shape);
+//                        imgObj.setImage(imageBitmap);
+                    // Specify the location where ObjectImage is inserted and add PageDoc.
+//                        float imgWidth = imageBitmap.getWidth();
+//                        float imgHeight = imageBitmap.getHeight();
+//                        RectF rect1 = getRealPoint(event.getX(), event.getY(), imgWidth, imgHeight);
+//                        imgObj.setRect(rect1, true);
+//                        mPenPageDoc.appendObject(imgObj);
+//                        mPenSurfaceView.update();
+//                        imageBitmap.recycle();
+//                        return true;
+                    // When touching the screen in Insert ObjectTextBox mode.
+//                    } else
+                    if (mPenSurfaceView.getToolTypeAction(mToolType) == SpenSurfaceView.ACTION_TEXT) {
                         // Specify the location where ObjectTextBox is inserted and add PageDoc.
                         SpenObjectTextBox textObj = new SpenObjectTextBox();
                         RectF rect1 = getRealPoint(event.getX(), event.getY(), 0, 0);
@@ -708,6 +842,27 @@ public class TeacherActivity extends BaseActivity {
                 }
             }
             return false;
+        };
+    }
+
+    @NonNull
+    private SpenTouchListener touchListenerTemporaryBrush() {
+        return (v, motionEvent) -> {
+            switch (motionEvent.getAction()) {
+                case MotionEvent.ACTION_DOWN:
+                    // When ACTION_DOWN occurs before mStrokeRunnable is set in a queue, the mStrokeRunnable that waits is removed.
+                    if (mStrokeHandler != null) {
+                        mStrokeHandler.removeCallbacks(mStrokeRunnable);
+                        mStrokeHandler = null;
+                    }
+                    break;
+                case MotionEvent.ACTION_UP:
+                    // Generate Handler to put mStrokeRunnable in a queue when it takes 1000 milliseconds after ACTION_UP occurred.
+                    mStrokeHandler = new Handler();
+                    mStrokeHandler.postDelayed(mStrokeRunnable, 1000);
+                    break;
+            }
+            return true;
         };
     }
 
@@ -741,8 +896,7 @@ public class TeacherActivity extends BaseActivity {
             galleryIntent.setType("image/*");
             startActivityForResult(galleryIntent, nRequestCode);
         } catch (ActivityNotFoundException e) {
-            Toast.makeText(this, "Cannot find gallery.",
-                    Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Cannot find gallery.", Toast.LENGTH_SHORT).show();
             e.printStackTrace();
         }
     }
@@ -759,12 +913,16 @@ public class TeacherActivity extends BaseActivity {
         }
         filePath = fileCacheItem.getPath() + "/CaptureImg.png";
         // Save the screen shot as a Bitmap.
+
+//        SpenCapturePage  spenCapturePage = null;
+//        spenCapturePage.setPageDoc(mPenPageDoc);
+//        spenCapturePage.capturePage(1.0f);
         Bitmap imgBitmap = mPenSurfaceView.captureCurrentView(true);
         OutputStream out = null;
         try {
             // Save the Bitmap in the selected location.
             out = new FileOutputStream(filePath);
-            imgBitmap.compress(Bitmap.CompressFormat.PNG, 100, out);
+            imgBitmap.compress(Bitmap.CompressFormat.PNG, 80, out);
             Toast.makeText(this, "Captured images were stored in the file \'CaptureImg.png\'.", Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
             Toast.makeText(this, "Capture failed.", Toast.LENGTH_SHORT).show();
@@ -855,6 +1013,37 @@ public class TeacherActivity extends BaseActivity {
         mEraserSettingView.setInfo(eraserInfo);
     }
 
+    private String getRealPathFromURI(Uri contentURI) {
+        Cursor cursor = this.getContentResolver().query(contentURI, null, null, null, null);
+        String result = null;
+        // for API 19 and above
+        if (cursor != null) {
+            cursor.moveToFirst();
+            String image_id = cursor.getString(0);
+            image_id = image_id.substring(image_id.lastIndexOf(":") + 1);
+            cursor.close();
+            cursor = this.getContentResolver().query(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, null, MediaStore.Images.Media._ID + " = ? ", new String[]{image_id}, null);
+            cursor.moveToFirst();
+            result = cursor.getString(cursor.getColumnIndex(MediaStore.Images.Media.DATA));
+            cursor.close();
+        }
+        return result;
+    }
+
+    private class MediaProjectionCallback extends MediaProjection.Callback {
+        @Override
+        public void onStop() {
+            if (statusRecorder == Constants.Action.ACTION_RESUME_RECORDING) {
+                statusRecorder = Constants.Action.ACTION_STOP_RECORDING;
+                mMediaRecorder.stop();
+                mMediaRecorder.reset();
+                Log.v(TAG, "Recording Stopped");
+            }
+            mMediaProjection = null;
+            stopScreenSharing();
+        }
+    }
+
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
@@ -876,24 +1065,32 @@ public class TeacherActivity extends BaseActivity {
                 mPenPageDoc.setBackgroundImage(imageRealPath);
                 mPenSurfaceView.update();
             }
-        }
-    }
+            if (requestCode == REQUEST_CODE_SELECT_IMAGE) {
+                Uri imageFileUri = data.getData();
+                @SuppressLint("Recycle")
+                Cursor cursor = getContentResolver().query(Uri.parse(imageFileUri != null ? imageFileUri.toString() : null), null, null, null, null);
+                if (cursor != null) {
+                    cursor.moveToNext();
+                }
+                String imageRealPath = getRealPathFromURI(imageFileUri);
+                SpenObjectImage imgObj = new SpenObjectImage();
+                imgObj.setImage(imageRealPath);
+                RectF rect1 = new RectF(mPenPageDoc.getWidth() / 4, mPenPageDoc.getWidth() / 4, mPenPageDoc.getWidth() / 2, mPenPageDoc.getHeight() / 2);
+                imgObj.setRect(rect1, true);
+                mPenPageDoc.appendObject(imgObj);
+                mPenPageDoc.selectObject(imgObj);
+                mPenSurfaceView.update();
+            }
 
-    private String getRealPathFromURI(Uri contentURI) {
-        Cursor cursor = this.getContentResolver().query(contentURI, null, null, null, null);
-        String result = null;
-        // for API 19 and above
-        if (cursor != null) {
-            cursor.moveToFirst();
-            String image_id = cursor.getString(0);
-            image_id = image_id.substring(image_id.lastIndexOf(":") + 1);
-            cursor.close();
-            cursor = this.getContentResolver().query(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, null, MediaStore.Images.Media._ID + " = ? ", new String[]{image_id}, null);
-            cursor.moveToFirst();
-            result = cursor.getString(cursor.getColumnIndex(MediaStore.Images.Media.DATA));
-            cursor.close();
+            if (requestCode == REQUEST_CODE_RECORD) {
+                mMediaProjectionCallback = new MediaProjectionCallback();
+                mMediaProjection = mProjectionManager.getMediaProjection(resultCode, data);
+                mMediaProjection.registerCallback(mMediaProjectionCallback, null);
+                mVirtualDisplay = createVirtualDisplay();
+                mMediaRecorder.start();
+                statusRecorder = Constants.Action.ACTION_RESUME_RECORDING;
+            }
         }
-        return result;
     }
 
     @Override
@@ -901,6 +1098,13 @@ public class TeacherActivity extends BaseActivity {
         super.onDestroy();
 
         //   prevent memory leaks when you application closes.
+
+        if (mMediaProjection != null) {
+            mMediaProjection.unregisterCallback(mMediaProjectionCallback);
+            mMediaProjection.stop();
+            mMediaProjection = null;
+        }
+
         if (mPenSettingView != null) {
             mPenSettingView.close();
         }
@@ -914,8 +1118,8 @@ public class TeacherActivity extends BaseActivity {
             mEraserSettingView.close();
         }
 
-        if(mSpenObjectRuntimeManager != null) {
-            if(mVideoRuntime != null) {
+        if (mSpenObjectRuntimeManager != null) {
+            if (mVideoRuntime != null) {
                 mVideoRuntime.stop(true);
                 mSpenObjectRuntimeManager.unload(mVideoRuntime);
             }
